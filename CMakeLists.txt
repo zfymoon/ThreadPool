@@ -3,4 +3,4 @@ project(Zhuque)
 
 set(CMAKE_CXX_STANDARD 20)
 
-add_executable(Zhuque main.cpp task/Executor.h task/Task.h)
+add_executable(Zhuque main.cpp task/Executor.h task/Task.h task/SpinLock.h)

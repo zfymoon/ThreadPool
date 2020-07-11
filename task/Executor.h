@@ -11,6 +11,7 @@
 #include "Task.h"
 #include <map>
 #include <atomic>
+#include "./SpinLock.h"
 
 /**
  * 线程池
@@ -34,7 +35,7 @@ private:
     std::queue<std::thread *> threadQueue;
     std::queue<T> taskQueue;
     std::atomic_flag threadFlag = ATOMIC_FLAG_INIT;
-    std::atomic_flag taskQueueFlag= ATOMIC_FLAG_INIT;
+    SpinLock _taskLock;
 public:
     typedef enum {
         TASK_NEW,
@@ -61,25 +62,23 @@ class TaskThread: public TaskInterface,public std::thread {
         void run() override{
             _taskState = TASK_RUN;
             while(_pool->_state == RUN && _taskState == TASK_RUN ){
-                while(_pool->taskQueueFlag.test_and_set(std::memory_order_acquire)){
-                    std:sched_yield();
-                }
+                _pool->_taskLock.lock();
                 if(!_pool->taskQueue.empty()){
                     TaskInterface & task = _pool->taskQueue.front();
                     std::cout<<"Get lock"<<std::endl;
                     _pool->taskQueue.pop();
-                    _pool->taskQueueFlag.clear(std::memory_order_release);
+                    _pool->_taskLock.unlock();
                     task.run();
                     _updateTime = getCurrentTime();
                 }else if(!_pool->_isFixedSize){
-                    _pool->taskQueueFlag.clear(std::memory_order_release);
+                    _pool->_taskLock.unlock();
                     if(getCurrentTime() > _pool->_expireTime + _updateTime){
                         _taskState = TASK_STOP;
                     } else {
                         sleep(_pool->_expireTime);
                     }
                 } else {
-                    _pool->taskQueueFlag.clear(std::memory_order_release);
+                    _pool->_taskLock.unlock();
                 }
             }
         }
@@ -105,12 +104,11 @@ class TaskThread: public TaskInterface,public std::thread {
         }
     }
     void post(T task){
-        while(taskQueueFlag.test_and_set(std::memory_order_acquire)){
-        }
+        _taskLock.lock();
         if(_state == RUN ){
             taskQueue.push(task);
         }
-        taskQueueFlag.clear(std::memory_order_release);
+        _taskLock.unlock();
     }
     void close(){
         _state = DESTROY;
